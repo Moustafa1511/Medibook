@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # `next build` statically generates the landing page, which reads the Service
+    # table at build time (C15), so the build itself needs a live database.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: medibook
+          POSTGRES_PASSWORD: medibook
+          POSTGRES_DB: medibook
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medibook -d medibook"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Deterministic, non-secret values so `next build` and the unit suite can run
+    # without production configuration. Mirrors tests/setup/test-env.ts.
+    env:
+      DATABASE_URL: postgresql://medibook:medibook@localhost:5432/medibook?schema=public
+      DIRECT_DATABASE_URL: postgresql://medibook:medibook@localhost:5432/medibook?schema=public
+      AUTH_SECRET: ci-auth-secret-at-least-32-characters
+      AUTH_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      OTP_PEPPER: ci-otp-pepper-at-least-32-characters!!
+      CRON_SECRET: ci-cron-secret-16
+      SMS_PROVIDER: console
+      SMS_DAILY_CAP_MINOR: "50000"
+      SMS_KILL_SWITCH: "false"
+      RATE_LIMIT_PROVIDER: memory
+      CLINIC_TIMEZONE: Europe/Berlin
+      CLINIC_CURRENCY: EUR
+      CLINIC_DEFAULT_COUNTRY: DE
+      SEED_ADMIN_EMAIL: admin@medibook.test
+      SEED_ADMIN_PASSWORD: ci-password
+      LOG_LEVEL: silent
+      E2E_TEST_HOOKS: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Each step gates the next: the job fails fast and `continue-on-error`
+      # is never set, per Phase 1's exit criteria.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit + component tests
+        run: pnpm test
+
+      - name: Apply migrations
+        run: pnpm exec prisma migrate deploy
+
+      - name: Seed catalog data
+        run: pnpm exec prisma db seed
+
+      - name: Contrast gate (WCAG 2.1 AA)
+        run: pnpm check:contrast
+
+      - name: Build
+        run: pnpm build
+
+  lighthouse:
+    name: Lighthouse (landing page)
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: medibook
+          POSTGRES_PASSWORD: medibook
+          POSTGRES_DB: medibook
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U medibook -d medibook"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://medibook:medibook@localhost:5432/medibook?schema=public
+      DIRECT_DATABASE_URL: postgresql://medibook:medibook@localhost:5432/medibook?schema=public
+      AUTH_SECRET: ci-auth-secret-at-least-32-characters
+      AUTH_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      OTP_PEPPER: ci-otp-pepper-at-least-32-characters!!
+      CRON_SECRET: ci-cron-secret-16
+      SMS_PROVIDER: console
+      SMS_DAILY_CAP_MINOR: "50000"
+      SMS_KILL_SWITCH: "false"
+      RATE_LIMIT_PROVIDER: memory
+      CLINIC_TIMEZONE: Europe/Berlin
+      CLINIC_CURRENCY: EUR
+      CLINIC_DEFAULT_COUNTRY: DE
+      SEED_ADMIN_EMAIL: admin@medibook.test
+      SEED_ADMIN_PASSWORD: ci-password
+      LOG_LEVEL: silent
+      E2E_TEST_HOOKS: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma migrate deploy
+      - run: pnpm exec prisma db seed
+      - run: pnpm build
+
+      # Asserts >=95 in all four categories on the MEDIAN of 3 runs (A10), plus
+      # the split JS budget from A14. ubuntu-latest ships Google Chrome.
+      - name: Lighthouse CI
+        run: pnpm dlx @lhci/cli@0.15.1 autorun
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-reports
+          path: .lighthouseci/
+          retention-days: 7
+
+# Added in later phases, deliberately absent now:
+#   - Playwright E2E with artifact upload (Phase 11)
+#   - Lighthouse CI asserting >=95 on the median of 3 runs (Phase 3/11, A10)
+#   - pnpm audit (Phase 11)

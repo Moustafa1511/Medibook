@@ -1,0 +1,214 @@
+// MediBook schema. Models arrive in T4.1; this file carries only the datasource
+// and generator until then.
+//
+// Portability (C3): no Prisma enums, no Json columns, no @db. native type
+// attributes, so the optional SQLite fallback stays viable.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Catalog + configuration slice (T3.2). The appointment/patient/auth models
+// arrive in T4.1-T4.3. Portability (C3): no enums, no Json, no native types.
+// ---------------------------------------------------------------------------
+
+model Service {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String
+  durationMin Int
+  priceMinor  Int
+  isActive    Boolean  @default(true)
+  sortOrder   Int
+  colorHex    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@index([isActive, sortOrder])
+}
+
+/// Exactly one row, id = "singleton". A CHECK constraint pins that in the
+/// hand-written migration step (T4.2); configuration lives here rather than in
+/// env so the clinic can edit it from the admin UI without a redeploy.
+model ClinicSettings {
+  id              String   @id @default("singleton")
+  clinicName      String
+  timeZone        String
+  currency        String
+  slotIntervalMin Int      @default(15)
+  bufferMin       Int      @default(0)
+  minLeadTimeMin  Int      @default(120)
+  maxAdvanceDays  Int      @default(60)
+  holdTtlMin      Int      @default(10)
+  phoneE164       String
+  email           String
+  addressLine1    String
+  addressLine2    String
+  mapUrl          String
+  updatedAt       DateTime @updatedAt
+}
+
+/// Minutes from midnight in CLINIC-LOCAL wall time. A weekday with zero rows is
+/// closed; multiple rows per weekday express a split shift.
+model WorkingHour {
+  id          String @id @default(cuid())
+  weekday     Int
+  openMinute  Int
+  closeMinute Int
+
+  @@unique([weekday, openMinute])
+}
+
+/// `date` is a String "YYYY-MM-DD" in clinic-local time, deliberately not a
+/// DateTime: a calendar date has no instant, and storing one invites
+/// off-by-one-day bugs across time zones (C5).
+model ClosedDate {
+  id     String  @id @default(cuid())
+  date   String  @unique
+  reason String?
+}
+
+// ---------------------------------------------------------------------------
+// Booking slice (T4.1). Still portable: no enums, no Json, no native types (C3).
+// ---------------------------------------------------------------------------
+
+/// Created ONLY after a successful OTP verification (C9.6), which is both the
+/// privacy-minimising choice and what makes "total patients" trivially correct.
+model Patient {
+  id        String   @id @default(cuid())
+  phoneE164 String   @unique
+  fullName  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments Appointment[]
+}
+
+model Appointment {
+  id        String @id @default(cuid())
+  reference String @unique
+
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  patientId String?
+  patient   Patient? @relation(fields: [patientId], references: [id])
+
+  /// Name and phone as typed at booking time, before a Patient row exists.
+  holdFullName  String
+  holdPhoneE164 String
+
+  startsAtUtc DateTime
+  endsAtUtc   DateTime
+
+  /// Snapshots, so later Service edits never rewrite history. Every revenue KPI
+  /// reads priceMinorAtBooking, never Service.priceMinor (C5).
+  durationMinAtBooking Int
+  priceMinorAtBooking  Int
+  currencyAtBooking    String
+  serviceNameAtBooking String
+
+  /// One of AppointmentStatus in src/lib/enums.ts; a CHECK constraint pins the
+  /// legal set in a hand-written migration (C3/C4).
+  status String
+  source String
+
+  holdExpiresAt      DateTime?
+  verifiedAt         DateTime?
+  confirmedAt        DateTime?
+  completedAt        DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  rescheduledFromUtc DateTime?
+  adminNote          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  slots         AppointmentSlot[]
+  otpChallenges OtpChallenge[]
+
+  @@index([startsAtUtc])
+  @@index([status, startsAtUtc])
+  @@index([serviceId, startsAtUtc])
+  @@index([status, holdExpiresAt])
+  @@index([patientId])
+  /// A2: covering index for the dashboard "appointments by service" aggregate.
+  @@index([startsAtUtc, status, serviceId])
+}
+
+/// THE CONCURRENCY GUARD (C5, Section 4.4). One row per atomic slot-interval an
+/// appointment occupies, all inserted in the same transaction as the Appointment.
+/// The unique index on slotStartUtc makes overlapping bookings impossible at the
+/// database level, which a unique index on Appointment.startsAtUtc would NOT:
+/// a 60-minute service could still start 30 minutes inside another.
+///
+/// Rows are DELETED when a hold expires or an appointment is CANCELLED (freeing
+/// the slot) and RETAINED for CONFIRMED / COMPLETED / NO_SHOW.
+model AppointmentSlot {
+  id            String   @id @default(cuid())
+  appointmentId String
+  slotStartUtc  DateTime @unique
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId])
+}
+
+model OtpChallenge {
+  id            String    @id @default(cuid())
+  appointmentId String
+  phoneE164     String
+  /// HMAC-SHA256(code, OTP_PEPPER). The code itself is never stored or logged (C10).
+  codeHash      String
+  expiresAt     DateTime
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(5)
+  resendCount   Int       @default(0)
+  lastSentAt    DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId, createdAt])
+  @@index([phoneE164, createdAt])
+}
+
+model AdminUser {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  fullName         String
+  role             String
+  isActive         Boolean   @default(true)
+  lastLoginAt      DateTime?
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model AuditLog {
+  id               String   @id @default(cuid())
+  actorAdminUserId String?
+  action           String
+  entity           String
+  entityId         String
+  /// JSON-serialised string, not a Json column (C3). Never contains PII (C19).
+  metaJson         String?
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entity, entityId])
+}

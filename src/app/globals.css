@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Canonical design tokens — the single token vocabulary for the whole app (C18, A8).
+ * Values are HSL channels (shadcn convention) so Tailwind can compose them with an
+ * alpha channel: hsl(var(--primary) / <alpha-value>).
+ *
+ * A8 bans four legacy aliases (the two "hover" spellings of the button fill, the
+ * "surface" spelling of the card colour, and the "danger" spelling of destructive).
+ * They are deliberately not written out here, so that grepping this file for them
+ * stays a meaningful automated check. Use --primary-button / --primary-button-hover,
+ * --card / --popover, and --destructive instead.
+ *
+ * MANUAL CHECK (documented per T2.1, since this is pure CSS):
+ *   1. Open the app, then in devtools run:
+ *        getComputedStyle(document.documentElement).getPropertyValue("--chart-1")
+ *      Every one of the 30 token names below must return a non-empty value.
+ *   2. Repeat with document.documentElement.classList.add("dark") — all 29 colour
+ *      tokens must return their dark value and the page must visibly swap without
+ *      a reload. This is the precondition Phase 8's hsl(var(--chart-1)) charts rely on.
+ */
+
+@layer base {
+  :root {
+    /* surfaces */
+    --background: 40 52.9% 96.7%; /* #FBF8F2 — creamy white */
+    --foreground: 222 47% 11%; /* #0F172A */
+    --card: 0 0% 100%; /* #FFFFFF */
+    --card-foreground: 222 47% 11%; /* #0F172A */
+    --popover: 0 0% 100%; /* #FFFFFF */
+    --popover-foreground: 222 47% 11%; /* #0F172A */
+
+    /* brand */
+    --primary: 175 84% 32%; /* #0D9488 — large/bold text, icons, rings, borders only */
+    --primary-foreground: 0 0% 100%; /* #FFFFFF */
+    --primary-button: 175 77% 26%; /* #0F766E — solid button fill, normal-size labels */
+    --primary-button-hover: 176 69% 22%; /* #115E59 */
+    --secondary: 243 75% 59%; /* #4F46E5 */
+    --secondary-foreground: 0 0% 100%; /* #FFFFFF */
+    --accent: 4 92% 69%; /* #F97066 — fill/decoration only, never text on white */
+    --accent-foreground: 222 47% 11%; /* #0F172A */
+
+    /* neutrals */
+    --muted: 214 32% 91%; /* #E2E8F0 */
+    --muted-foreground: 215 19% 35%; /* #475569 */
+    --border: 214 32% 91%; /* #E2E8F0 */
+    --input: 214 32% 91%; /* #E2E8F0 */
+    --ring: 175 84% 32%; /* = --primary */
+
+    /* status */
+    --destructive: 0 72% 51%; /* #DC2626 */
+    --destructive-foreground: 0 0% 100%; /* #FFFFFF */
+    --success: 142 76% 36%; /* #16A34A */
+    --warning: 38 92% 50%; /* #F59E0B */
+    --info: 199 89% 48%; /* #0EA5E9 */
+
+    /* charts */
+    --chart-1: 175 84% 32%; /* = --primary */
+    --chart-2: 243 75% 59%; /* = --secondary */
+    --chart-3: 26 90% 37%; /* #B45309 */
+    --chart-4: 201 96% 32%; /* #0369A1 */
+    --chart-5: 295 72% 40%; /* #A21CAF */
+
+    /*
+     * Set under :root only, deliberately not redeclared under .dark. Both rules
+     * match the same <html> element, and a custom property a matching rule does
+     * not set is simply not overridden — so this keeps resolving in dark mode.
+     */
+    --radius: 1rem;
+  }
+
+  .dark {
+    /* surfaces */
+    --background: 222 47% 11%; /* #0F172A */
+    --foreground: 210 40% 96%; /* #F1F5F9 */
+    --card: 217 33% 17%; /* #1E293B */
+    --card-foreground: 210 40% 96%; /* #F1F5F9 */
+    --popover: 217 33% 17%; /* #1E293B */
+    --popover-foreground: 210 40% 96%; /* #F1F5F9 */
+
+    /* brand */
+    --primary: 172 66% 50%; /* #2DD4BF */
+    --primary-foreground: 222 47% 11%; /* #0F172A */
+    --primary-button: 172 66% 50%; /* #2DD4BF */
+    --primary-button-hover: 173 60% 44%; /* #26B8A5 */
+    --secondary: 234 89% 74%; /* #818CF8 */
+    --secondary-foreground: 222 47% 11%; /* #0F172A */
+    --accent: 4 92% 69%; /* #F97066 — unchanged */
+    --accent-foreground: 222 47% 11%; /* #0F172A — unchanged */
+
+    /* neutrals */
+    --muted: 215 25% 27%; /* #334155 */
+    --muted-foreground: 215 20% 65%; /* #94A3B8 */
+    --border: 215 25% 27%; /* #334155 */
+    --input: 215 25% 27%; /* #334155 */
+    --ring: 172 66% 50%; /* = --primary */
+
+    /* status */
+    --destructive: 0 91% 71%; /* #F87171 */
+    --destructive-foreground: 222 47% 11%; /* #0F172A */
+    --success: 142 69% 58%; /* #4ADE80 */
+    --warning: 43 96% 56%; /* #FBBF24 */
+    --info: 198 93% 60%; /* #38BDF8 */
+
+    /* charts */
+    --chart-1: 172 66% 50%; /* = --primary */
+    --chart-2: 234 89% 74%; /* = --secondary */
+    --chart-3: 43 96% 56%; /* = --warning */
+    --chart-4: 198 93% 60%; /* = --info */
+    --chart-5: 292 91% 73%; /* #E879F9 */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+  }
+
+  /* The focus ring is never removed (C18). */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+}
+
+/*
+ * Motion: every transition is <=200ms, and all of it is disabled for anyone who
+ * has asked their OS to reduce motion (C18).
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

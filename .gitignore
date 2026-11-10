@@ -1,0 +1,41 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# production
+build/
+
+# env — secrets live only in .env (C16); .env.example is committed
+.env
+.env.*
+!.env.example
+
+# generated Prisma schema for the optional SQLite fallback (Section 3.1, C3)
+prisma/schema.sqlite.prisma
+prisma/dev.db
+prisma/dev.db-journal
+
+# typescript incremental build info
+*.tsbuildinfo
+
+# lighthouse ci output
+.lighthouseci/
+
+# test output
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# misc
+.DS_Store
+*.pem
+.vercel
+.idea/
+.vscode/

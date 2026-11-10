@@ -1,0 +1,24 @@
+# Local development database. Postgres is the single source of truth for the
+# schema and migrations in both dev and production (C3). No redis/cache service:
+# development uses MemoryRateLimiter, so there is no external dependency (C14).
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: medibook-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medibook
+      POSTGRES_PASSWORD: medibook
+      POSTGRES_DB: medibook
+    ports:
+      - "5432:5432"
+    volumes:
+      - medibook-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medibook -d medibook"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  medibook-pgdata:

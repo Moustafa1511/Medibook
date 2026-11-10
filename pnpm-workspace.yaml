@@ -1,0 +1,9 @@
+# pnpm 10+ reads build-script allowances from here, not package.json.
+# Only these packages may run install scripts: Prisma fetches/generates its query
+# engine, esbuild and unrs-resolver need their platform binaries.
+allowBuilds:
+  "@prisma/client": true
+  "@prisma/engines": true
+  prisma: true
+  esbuild: true
+  unrs-resolver: true
